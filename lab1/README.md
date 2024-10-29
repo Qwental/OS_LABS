@@ -7,7 +7,7 @@
 читает из pipe1 и прочитанное выводит в свой стандартный поток вывода. Родительский и 
 дочерний процесс должны быть представлены разными программами!
 
-[alt text](https://github.com/Qwental/OS_LABS/blob/main/lab1/image.png)
+![Image alt](https://github.com/Qwental/OS_LABS/blob/main/lab1/image.png)
 
 9 вариант:
 В файле записаны команды вида:«число число число<endline>». Дочерний процесс 
