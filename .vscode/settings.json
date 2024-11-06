@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "wait.h": "c",
+        "system_error": "c",
+        "string.h": "c"
+    },
+    "cmake.sourceDirectory": "/home/qwental/workspace/fund_algos/labs"
+}
