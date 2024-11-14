@@ -80,7 +80,12 @@ int main(int args, char *argv[])
         // CHILD
         close(fd[1]);
 
-        dup2(fd[0], STDIN_FILENO);
+        if (dup2(fd[0], STDIN_FILENO) < 0)
+        {
+            write_error("ERROR: dup2 failed\n");
+            exit(EXIT_FAILURE);
+        }
+
         close(fd[0]);
 
         execl("./child", "", NULL);
