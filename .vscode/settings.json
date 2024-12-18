@@ -44,7 +44,9 @@
         "ostream": "c",
         "stdexcept": "c",
         "streambuf": "c",
-        "typeinfo": "c"
+        "typeinfo": "c",
+        "ctype.h": "c",
+        "stdio.h": "c"
     },
     "cmake.sourceDirectory": "/home/qwental/workspace/fund_algos/labs"
 }
