@@ -1,88 +1,74 @@
-#ifndef McKusick_Carels_algorithm_H
-#define McKusick_Carels_algorithm_H
-
-#include <stddef.h>
-
-typedef struct Allocator {
-    void *memory_start;
-    size_t memory_size;
-    void *free_list;
-} Allocator;
-
-Allocator *allocator_create(void *const memory, const size_t size);
-
-void allocator_destroy(Allocator *const allocator);
-
-void *allocator_alloc(Allocator *const allocator, const size_t size);
-
-void allocator_free(Allocator *const allocator, void *const memory);
+//
+// Created by Qwental on 22.12.2024.
+//
 
 
-typedef struct FreeBlock {
-    struct FreeBlock *nextBlock;
-} FreeBlock;
+#include "mckusick_carels.h"
 
-#define ALIGN_SIZE(size, alignment) (((size) + (alignment - 1)) & ~(alignment - 1))
-
-Allocator *allocator_create(void *const memoryPool, const size_t totalSize) {
-    if (!memoryPool || totalSize < sizeof(Allocator)) {
+// Функция для создания аллокатора
+MemoryAllocator *allocator_create(void *memory_pool, size_t total_size) {
+    if (memory_pool == NULL || total_size < sizeof(MemoryAllocator)) {
         return NULL;
     }
 
-    Allocator *allocator = (Allocator *) memoryPool;
-    allocator->memory_start = (char *) memoryPool + sizeof(Allocator);
-    allocator->memory_size = totalSize - sizeof(Allocator);
-    allocator->free_list = allocator->memory_start;
+    MemoryAllocator *allocator = (MemoryAllocator *)memory_pool;
+    allocator->memory_start = (char *)memory_pool + sizeof(MemoryAllocator);
+    allocator->memory_size = total_size - sizeof(MemoryAllocator);
+    allocator->free_list_head = (FreeBlock *)allocator->memory_start;
 
-    FreeBlock *initialBlock = (FreeBlock *) allocator->memory_start;
-    initialBlock->nextBlock = NULL;
+    // Инициализация списка
+    if (allocator->free_list_head != NULL) {
+        allocator->free_list_head->next_block = NULL;
+    }
 
     return allocator;
 }
 
-void allocator_destroy(Allocator *const allocator) {
-    if (!allocator) {
+// Функция для уничтожения аллокатора
+void allocator_destroy(MemoryAllocator *allocator) {
+    if (allocator == NULL) {
         return;
     }
+
     allocator->memory_start = NULL;
     allocator->memory_size = 0;
-    allocator->free_list = NULL;
+    allocator->free_list_head = NULL;
 }
 
-void *allocator_alloc(Allocator *const allocator, const size_t requestedSize) {
-    if (!allocator || requestedSize == 0) {
+// Функция для выделения памяти
+void *allocator_alloc(MemoryAllocator *allocator, size_t size) {
+    if (allocator == NULL || size == 0) {
         return NULL;
     }
 
-    size_t alignedSize = ALIGN_SIZE(requestedSize, sizeof(void*));
-    FreeBlock *previousBlock = NULL;
-    FreeBlock *currentBlock = (FreeBlock *) allocator->free_list;
+    size_t aligned_size = ALIGN_SIZE(size, FREE_LIST_ALIGNMENT);
+    FreeBlock *previous_block = NULL;
+    FreeBlock *current_block = allocator->free_list_head;
 
-    while (currentBlock) {
-        if (alignedSize <= allocator->memory_size) {
-            if (previousBlock) {
-                previousBlock->nextBlock = currentBlock->nextBlock;
+    while (current_block != NULL) {
+        if (aligned_size <= allocator->memory_size) {
+            if (previous_block != NULL) {
+                previous_block->next_block = current_block->next_block;
             } else {
-                allocator->free_list = currentBlock->nextBlock;
+                allocator->free_list_head = current_block->next_block;
             }
-            return currentBlock;
+            return current_block;
         }
 
-        previousBlock = currentBlock;
-        currentBlock = currentBlock->nextBlock;
+        previous_block = current_block;
+        current_block = current_block->next_block;
     }
 
     return NULL;
 }
 
-void allocator_free(Allocator *const allocator, void *const memoryBlock) {
-    if (!allocator || !memoryBlock) {
+// Функция для освобождения памяти
+void allocator_free(MemoryAllocator *allocator, void *memory_block) {
+    if (allocator == NULL || memory_block == NULL) {
         return;
     }
 
-    FreeBlock *blockToFree = (FreeBlock *) memoryBlock;
-    blockToFree->nextBlock = (FreeBlock *) allocator->free_list;
-    allocator->free_list = blockToFree;
+    FreeBlock *block_to_free = (FreeBlock *)memory_block;
+    block_to_free->next_block = allocator->free_list_head;
+    allocator->free_list_head = block_to_free;
 }
-
-#endif //  McKusick_Carels_algorithm

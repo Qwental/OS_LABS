@@ -1,154 +1,124 @@
-//
-// Created by Qwental on 22.12.2024.
-//
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/mman.h>
+#include "block_2n.h"
 
-#define MAX_BLOCK_SIZE_LOG2 10   // Максимальный логарифм размера блока (2^10 = 1024)
-#define MIN_BLOCK_SIZE_LOG2 0    // Минимальный логарифм размера блока (2^0 = 1)
-#define FREE_LIST_COUNT 11       // Количество списков свободных блоков (0-10)
-
-typedef struct Block {
-    struct Block *next;
-    struct Block *prev;
-    size_t size;
-} Block;
-
-typedef struct Allocator {
-    Block *freeLists[FREE_LIST_COUNT];
-    void *memoryStart;
-    size_t totalMemorySize;
-} Allocator;
-
-// Вычисление степени числа (base^exp)
-long long calculate_power(int base, int exp) {
-    long long result = 1;
-    while (exp > 0) {
-        if (exp & 1) {
-            result *= base;
-        }
-        base *= base;
-        exp /= 2;
+// Функция вычисления логарифма по основанию 2
+int log2_calc(int number) {
+    if (number == 0) {
+        return -1;
     }
-    return result;
+    int log_value = 0;
+    while (number > 1) {
+        number >>= 1;
+        log_value++;
+    }
+    return log_value;
 }
 
-// Создание аллокатора
-Allocator *allocator_create(void *memoryPool, const size_t totalSize) {
-    Allocator *allocator = (Allocator *) memoryPool;
-    allocator->totalMemorySize = totalSize - sizeof(Allocator);
-    allocator->memoryStart = (char *) memoryPool + sizeof(Allocator);
-
-    size_t offset = 0;
-    size_t currentBlockLog = 0;
-
-    // Инициализация списков свободных блоков
-    for (int i = 0; i < FREE_LIST_COUNT; ++i) {
-        allocator->freeLists[i] = NULL;
+// Функция создания аллокатора
+Allocator *allocator_create(void *memory_region, size_t region_size) {
+    if (memory_region == NULL || region_size < sizeof(Allocator)) {
+        return NULL;
     }
 
-    // Разбиение памяти на блоки
-    while (offset + calculate_power(2, currentBlockLog) <= allocator->totalMemorySize) {
-        Block *block = (Block *) ((char *) allocator->memoryStart + offset);
-        block->size = calculate_power(2, currentBlockLog);
+    Allocator *allocator = (Allocator *) memory_region;
+    allocator->base_addr = memory_region;
+    allocator->total_size = region_size;
 
-        // Добавление блока в соответствующий список
-        block->next = allocator->freeLists[currentBlockLog];
-        block->prev = NULL;
-        if (allocator->freeLists[currentBlockLog]) {
-            allocator->freeLists[currentBlockLog]->prev = block;
+    const size_t min_usable = sizeof(Block) + BLOCK_MIN_SIZE;
+    size_t max_block = BLOCK_MAX_SIZE(region_size);
+
+    allocator->num_lists = (size_t) floor(log2_calc(max_block) / DIVISOR_LOG2) + 3;
+    allocator->free_lists = (Block **) ((char *) memory_region + sizeof(Allocator));
+
+    for (size_t i = 0; i < allocator->num_lists; i++) {
+        allocator->free_lists[i] = NULL;
+    }
+
+    void *current_block = (char *) memory_region + sizeof(Allocator) +
+                          allocator->num_lists * sizeof(Block *);
+    size_t remaining_size = region_size - sizeof(Allocator) - allocator->num_lists * sizeof(Block *);
+
+    size_t block_size = BLOCK_MIN_SIZE;
+    while (remaining_size >= min_usable) {
+        if (block_size > remaining_size || block_size > max_block) {
+            break;
         }
-        allocator->freeLists[currentBlockLog] = block;
 
-        offset += block->size;
-        currentBlockLog++;
+        if (remaining_size >= (block_size + sizeof(Block)) * 2) {
+            for (int i = 0; i < 2; i++) {
+                Block *block_header = (Block *) current_block;
+                size_t list_index = log2_calc(block_size);
+                block_header->next_block = allocator->free_lists[list_index];
+                allocator->free_lists[list_index] = block_header;
+
+                current_block = (char *) current_block + block_size;
+                remaining_size -= block_size;
+            }
+        } else {
+            Block *block_header = (Block *) current_block;
+            size_t list_index = log2_calc(block_size);
+            block_header->next_block = allocator->free_lists[list_index];
+            allocator->free_lists[list_index] = block_header;
+
+            current_block = (char *) current_block + remaining_size;
+            remaining_size = 0;
+        }
+
+        block_size <<= 1;
     }
-
     return allocator;
 }
 
-// Разделение блока
-void split_block(Allocator *allocator, Block *block) {
-    int logIndex = 0;
-    while ((1 << logIndex) < block->size) {
-        logIndex++;
+// Функция выделения памяти
+void *allocator_alloc(Allocator *allocator, size_t alloc_size) {
+    if (allocator == NULL || alloc_size == 0) {
+        return NULL;
     }
 
-    Block *newBlock = (Block *) ((char *) allocator->memoryStart + block->size / 2);
+    size_t list_index = log2_calc(alloc_size) + 1;
+    list_index = SELECT_LAST_LIST(list_index, allocator->num_lists);
 
-    // Настройка ссылок
-    newBlock->next = allocator->freeLists[logIndex];
-    if (newBlock->next) {
-        newBlock->next->prev = newBlock;
+    while (list_index < allocator->num_lists && allocator->free_lists[list_index] == NULL) {
+        list_index++;
     }
-    allocator->freeLists[logIndex] = newBlock;
 
-    block->size /= 2;
-    newBlock->size = block->size;
+    if (list_index >= allocator->num_lists) {
+        return NULL;
+    }
+
+    Block *allocated_block = allocator->free_lists[list_index];
+    allocator->free_lists[list_index] = allocated_block->next_block;
+
+    return (void *) ((char *) allocated_block + sizeof(Block));
 }
 
-// Выделение памяти
-void *allocator_alloc(Allocator *allocator, const size_t requestedSize) {
-    int logIndex = 0;
-
-    // Поиск подходящего размера блока
-    while ((1 << logIndex) < requestedSize) {
-        logIndex++;
+// Функция освобождения памяти
+void allocator_free(Allocator *allocator, void *memory_pointer) {
+    if (allocator == NULL || memory_pointer == NULL) {
+        return;
     }
 
-    if (logIndex >= FREE_LIST_COUNT) {
-        return NULL; // Запрашиваемый размер слишком велик
-    }
+    Block *block_to_free = (Block *) ((char *) memory_pointer - sizeof(Block));
+    size_t offset = (char *) block_to_free - (char *) allocator->base_addr;
+    size_t temp_size = BLOCK_DEFAULT_SIZE;
 
-    // Поиск свободного блока
-    for (int i = logIndex; i < FREE_LIST_COUNT; ++i) {
-        if (allocator->freeLists[i] != NULL) {
-            Block *block = allocator->freeLists[i];
-
-            // Удаление из списка и разбиение блока, если требуется
-            allocator->freeLists[i] = block->next;
-            while (i > logIndex) {
-                split_block(allocator, block);
-                i--;
-            }
-
-            return (void *) block;
+    while (temp_size <= offset) {
+        size_t next_size = temp_size << 1;
+        if (next_size > offset) {
+            break;
         }
+        temp_size = next_size;
     }
 
-    return NULL; // Нет доступных блоков
+    size_t list_index = log2_calc(temp_size);
+    list_index = SELECT_LAST_LIST(list_index, allocator->num_lists);
+
+    block_to_free->next_block = allocator->free_lists[list_index];
+    allocator->free_lists[list_index] = block_to_free;
 }
 
-// Освобождение памяти
-void allocator_free(Allocator *allocator, void *memoryBlock) {
-    if (!allocator || !memoryBlock) {
-        return;
-    }
-
-    Block *block = (Block *) memoryBlock;
-    int logIndex = 0;
-
-    // Определение индекса списка
-    while ((1 << logIndex) < block->size) {
-        logIndex++;
-    }
-
-    // Добавление блока обратно в список
-    block->next = allocator->freeLists[logIndex];
-    if (block->next) {
-        block->next->prev = block;
-    }
-    allocator->freeLists[logIndex] = block;
-}
-
-// Уничтожение аллокатора
+// Функция уничтожения аллокатора
 void allocator_destroy(Allocator *allocator) {
-    if (!allocator) {
-        return;
-    }
-
-    if (munmap((void *) allocator, allocator->totalMemorySize + sizeof(Allocator)) == -1) {
-        exit(EXIT_FAILURE); // Ошибка освобождения памяти
+    if (allocator != NULL) {
+        munmap(allocator->base_addr, allocator->total_size);
     }
 }
