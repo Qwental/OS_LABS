@@ -19,9 +19,9 @@ Allocator *allocator_create(void *memory_region, size_t region_size) {
         return NULL;
     }
 
-    Allocator *allocator = (Allocator *) memory_region;
-    allocator->base_addr = memory_region;
-    allocator->total_size = region_size;
+    Allocator *allocator = (Allocator *) memory_region; // указ начало переданной области памяти
+    allocator->base_addr = memory_region; // сохр указатель на переданную область памяти,
+    allocator->total_size = region_size; // сохр размер памяти
 
     const size_t min_usable = sizeof(Block) + BLOCK_MIN_SIZE;
     size_t max_block = BLOCK_MAX_SIZE(region_size);

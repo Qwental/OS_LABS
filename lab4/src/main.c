@@ -9,26 +9,21 @@ gcc -shared -fPIC -o libblock_2n.so block_2n.c
 
 gcc -o main main.c -ldl
 
-
 ./main ./libblock_2n.so
 ./main ./libmckusick_carels.so
 
-
  */
-
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <dlfcn.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/mman.h>
 
-typedef void * (*allocator_create_t)(void *const memory, const size_t size);
-
-typedef void * (*allocator_alloc_t)(void *const allocator, const size_t size);
-
+typedef void *(*allocator_create_t)(void *const memory, const size_t size);
+typedef void *(*allocator_alloc_t)(void *const allocator, const size_t size);
 typedef void (*allocator_free_t)(void *const allocator, void *const memory);
-
 typedef void (*allocator_destroy_t)(void *const allocator);
 
 void write_message(const char *message) {
@@ -55,10 +50,10 @@ int main(int argc, char *argv[]) {
     }
 
     // Получаем указатели на функции из библиотеки
-    allocator_create_t allocator_create = (allocator_create_t) dlsym(allocator_lib, "allocator_create");
-    allocator_alloc_t allocator_alloc = (allocator_alloc_t) dlsym(allocator_lib, "allocator_alloc");
-    allocator_free_t allocator_free = (allocator_free_t) dlsym(allocator_lib, "allocator_free");
-    allocator_destroy_t allocator_destroy = (allocator_destroy_t) dlsym(allocator_lib, "allocator_destroy");
+    allocator_create_t allocator_create = (allocator_create_t)dlsym(allocator_lib, "allocator_create");
+    allocator_alloc_t allocator_alloc = (allocator_alloc_t)dlsym(allocator_lib, "allocator_alloc");
+    allocator_free_t allocator_free = (allocator_free_t)dlsym(allocator_lib, "allocator_free");
+    allocator_destroy_t allocator_destroy = (allocator_destroy_t)dlsym(allocator_lib, "allocator_destroy");
 
     if (!allocator_create || !allocator_alloc || !allocator_free || !allocator_destroy) {
         write_error("Error locating functions: ");
@@ -68,35 +63,34 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Выделяем память для аллокатора
-    void *memory_pool = malloc(1024 * 1024);
-    if (!memory_pool) {
-        write_error("Memory allocation for pool failed\n");
+    size_t pool_size = 4 * 1024 * 1024; // 4 МБ
+    void *memory_pool = mmap(NULL, pool_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (memory_pool == MAP_FAILED) {
+        write_error("Memory allocation for pool failed (mmap)\n");
         dlclose(allocator_lib);
         return 1;
     }
 
-    // Создаем аллокатор
-    void *allocator = allocator_create(memory_pool, 1024 * 1024);
+    void *allocator = allocator_create(memory_pool, pool_size);
     if (!allocator) {
         write_error("Allocator creation failed\n");
-        free(memory_pool);
+        munmap(memory_pool, pool_size);
         dlclose(allocator_lib);
         return 1;
     }
 
-    // Тест 1: выделение 256 байт
-    void *block1 = allocator_alloc(allocator, 256);
+    // Тест 1: выделение 1024 байт
+    void *block1 = allocator_alloc(allocator, 1024);
     if (block1) {
-        write_message("Test 1: Memory allocated (256 bytes)\n");
+        write_message("Test 1: Memory allocated (1024 bytes)\n");
         allocator_free(allocator, block1);
-        write_message("Test 1: Memory freed (256 bytes)\n");
+        write_message("Test 1: Memory freed (1024 bytes)\n");
     } else {
         write_error("Test 1: Memory allocation failed\n");
     }
 
     // Тест 2: выделение больше доступного
-    void *block2 = allocator_alloc(allocator, 2 * 1024 * 1024);
+    void *block2 = allocator_alloc(allocator, 8 * 1024 * 1024);
     if (!block2) {
         write_message("Test 2: Memory allocation failed as expected for oversized request\n");
     } else {
@@ -105,21 +99,21 @@ int main(int argc, char *argv[]) {
     }
 
     // Тест 3: повторное выделение и освобождение
-    void *block3 = allocator_alloc(allocator, 512);
+    void *block3 = allocator_alloc(allocator, 2048);
     if (block3) {
-        write_message("Test 3: Memory allocated (512 bytes)\n");
+        write_message("Test 3: Memory allocated (2048 bytes)\n");
         allocator_free(allocator, block3);
-        write_message("Test 3: Memory freed (512 bytes)\n");
+        write_message("Test 3: Memory freed (2048 bytes)\n");
     } else {
         write_error("Test 3: Memory allocation failed\n");
     }
 
     // Тест 4: проверка выделения после освобождения
-    void *block4 = allocator_alloc(allocator, 256);
+    void *block4 = allocator_alloc(allocator, 1024);
     if (block4) {
-        write_message("Test 4: Memory allocated (256 bytes)\n");
+        write_message("Test 4: Memory allocated (1024 bytes)\n");
         allocator_free(allocator, block4);
-        write_message("Test 4: Memory freed (256 bytes)\n");
+        write_message("Test 4: Memory freed (1024 bytes)\n");
     } else {
         write_error("Test 4: Memory allocation failed\n");
     }
@@ -128,7 +122,8 @@ int main(int argc, char *argv[]) {
     allocator_destroy(allocator);
     write_message("Allocator destroyed\n");
 
-    free(memory_pool);
+    // Освобождаем выделенную mmap память
+    munmap(memory_pool, pool_size);
     dlclose(allocator_lib);
 
     return 0;
