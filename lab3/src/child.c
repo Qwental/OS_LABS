@@ -13,7 +13,14 @@
 #define SEM_CHILD_READ "/sem_child_read"
 #define END_MARKER "END"
 
-void cleanup_resources(sem_t *sem_parent_write, sem_t *sem_child_read, char *shared_memory, int shm_fd) {
+// Глобальные переменные для обработки сигналов
+sem_t *sem_parent_write = NULL;
+sem_t *sem_child_read = NULL;
+char *shared_memory = NULL;
+int shm_fd = -1;
+
+// Очистка ресурсов
+void cleanup_resources() {
     if (sem_parent_write != NULL) {
         sem_close(sem_parent_write);
     }
@@ -28,15 +35,17 @@ void cleanup_resources(sem_t *sem_parent_write, sem_t *sem_child_read, char *sha
     }
 }
 
+// Обработчик сигналов
+void signal_handler(int signum) {
+    cleanup_resources();
+    write(STDERR_FILENO, "Ресурсы дочернего процесса освобождены.\n", 42);
+    exit(EXIT_FAILURE);
+}
+
 void write_error(const char *message) {
     if (message != NULL) {
         write(STDERR_FILENO, message, strlen(message));
     }
-}
-
-void signal_handler(int signum) {
-    write(STDERR_FILENO, "Дочерний процесс прерван.\n", 27);
-    exit(EXIT_FAILURE);
 }
 
 int process_command(const char *command) {
@@ -74,23 +83,23 @@ int main() {
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    int shm_fd = shm_open(SHM_NAME, O_RDWR, 0666);
+    shm_fd = shm_open(SHM_NAME, O_RDWR, 0666);
     if (shm_fd == -1) {
         write_error("Ошибка: Не удалось открыть общую память.\n");
         return EXIT_FAILURE;
     }
 
-    char *shared_memory = mmap(0, BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    shared_memory = mmap(0, BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (shared_memory == MAP_FAILED) {
-        cleanup_resources(NULL, NULL, NULL, shm_fd);
+        cleanup_resources();
         write_error("Ошибка: Не удалось отобразить общую память.\n");
         return EXIT_FAILURE;
     }
 
-    sem_t *sem_parent_write = sem_open(SEM_PARENT_WRITE, 0);
-    sem_t *sem_child_read = sem_open(SEM_CHILD_READ, 0);
+    sem_parent_write = sem_open(SEM_PARENT_WRITE, 0);
+    sem_child_read = sem_open(SEM_CHILD_READ, 0);
     if (sem_parent_write == SEM_FAILED || sem_child_read == SEM_FAILED) {
-        cleanup_resources(sem_parent_write, sem_child_read, shared_memory, shm_fd);
+        cleanup_resources();
         write_error("Ошибка: Не удалось открыть семафоры.\n");
         return EXIT_FAILURE;
     }
@@ -109,7 +118,6 @@ int main() {
         sem_post(sem_child_read);
     }
 
-    cleanup_resources(sem_parent_write, sem_child_read, shared_memory, shm_fd);
-
+    cleanup_resources();
     return EXIT_SUCCESS;
 }

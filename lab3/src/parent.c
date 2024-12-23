@@ -15,8 +15,14 @@
 #define SEM_CHILD_READ "/sem_child_read"
 #define END_MARKER "END"
 
+// Глобальные переменные для обработки сигналов
+sem_t *sem_parent_write = NULL;
+sem_t *sem_child_read = NULL;
+char *shared_memory = NULL;
+int shm_fd = -1;
+
 // Очистка ресурсов
-void cleanup_resources(sem_t *sem_parent_write, sem_t *sem_child_read, char *shared_memory, int shm_fd) {
+void cleanup_resources() {
     if (sem_parent_write != NULL) {
         sem_close(sem_parent_write);
         sem_unlink(SEM_PARENT_WRITE);
@@ -36,7 +42,8 @@ void cleanup_resources(sem_t *sem_parent_write, sem_t *sem_child_read, char *sha
 
 // Обработчик сигналов
 void signal_handler(int signum) {
-    write(STDERR_FILENO, "Программа прервана.\n", 21);
+    cleanup_resources();
+    write(STDERR_FILENO, "Ресурсы освобождены, программа завершена.\n", 42);
     exit(EXIT_FAILURE);
 }
 
@@ -47,6 +54,7 @@ void write_error(const char *message) {
 }
 
 int main(int argc, char *argv[]) {
+    // Установка обработчиков сигналов
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
@@ -61,7 +69,7 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    int shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
+    shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
     if (shm_fd == -1) {
         fclose(input_file);
         write_error("Ошибка: Не удалось создать объект общей памяти.\n");
@@ -70,24 +78,24 @@ int main(int argc, char *argv[]) {
 
     if (ftruncate(shm_fd, BUFFER_SIZE) == -1) {
         fclose(input_file);
-        cleanup_resources(NULL, NULL, NULL, shm_fd);
+        cleanup_resources();
         write_error("Ошибка: Не удалось установить размер общей памяти.\n");
         return EXIT_FAILURE;
     }
 
-    char *shared_memory = mmap(0, BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    shared_memory = mmap(0, BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (shared_memory == MAP_FAILED) {
         fclose(input_file);
-        cleanup_resources(NULL, NULL, NULL, shm_fd);
+        cleanup_resources();
         write_error("Ошибка: Не удалось отобразить общую память.\n");
         return EXIT_FAILURE;
     }
 
-    sem_t *sem_parent_write = sem_open(SEM_PARENT_WRITE, O_CREAT, 0666, 0);
-    sem_t *sem_child_read = sem_open(SEM_CHILD_READ, O_CREAT, 0666, 0);
+    sem_parent_write = sem_open(SEM_PARENT_WRITE, O_CREAT, 0666, 0);
+    sem_child_read = sem_open(SEM_CHILD_READ, O_CREAT, 0666, 0);
     if (sem_parent_write == SEM_FAILED || sem_child_read == SEM_FAILED) {
         fclose(input_file);
-        cleanup_resources(sem_parent_write, sem_child_read, shared_memory, shm_fd);
+        cleanup_resources();
         write_error("Ошибка: Не удалось создать семафоры.\n");
         return EXIT_FAILURE;
     }
@@ -95,7 +103,7 @@ int main(int argc, char *argv[]) {
     pid_t pid = fork();
     if (pid < 0) {
         fclose(input_file);
-        cleanup_resources(sem_parent_write, sem_child_read, shared_memory, shm_fd);
+        cleanup_resources();
         write_error("Ошибка: Не удалось создать дочерний процесс.\n");
         return EXIT_FAILURE;
     }
@@ -119,7 +127,7 @@ int main(int argc, char *argv[]) {
         wait(NULL);
     }
 
-    cleanup_resources(sem_parent_write, sem_child_read, shared_memory, shm_fd);
+    cleanup_resources();
     fclose(input_file);
 
     return EXIT_SUCCESS;
