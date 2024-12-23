@@ -5,115 +5,111 @@
 #include <semaphore.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <signal.h>
 
 #define BUFFER_SIZE 512
+#define SHM_NAME "/shared_mem"
+#define SEM_PARENT_WRITE "/sem_parent_write"
+#define SEM_CHILD_READ "/sem_child_read"
 #define END_MARKER "END"
 
-typedef enum Errors {
-    E_SUCCESS = 0,
-    E_INVALID_INPUT,
-    E_DEVIDE_BY_ZERO
-} ERRORS_EXIT_CODES;
-
-void write_error(const char *error_string) {
-    if (error_string == NULL) {
-        write(STDERR_FILENO, "ERROR", 6);
+void cleanup_resources(sem_t *sem_parent_write, sem_t *sem_child_read, char *shared_memory, int shm_fd) {
+    if (sem_parent_write != NULL) {
+        sem_close(sem_parent_write);
     }
-    write(STDERR_FILENO, error_string, strlen(error_string));
+    if (sem_child_read != NULL) {
+        sem_close(sem_child_read);
+    }
+    if (shared_memory != NULL) {
+        munmap(shared_memory, BUFFER_SIZE);
+    }
+    if (shm_fd != -1) {
+        close(shm_fd);
+    }
+}
+
+void write_error(const char *message) {
+    if (message != NULL) {
+        write(STDERR_FILENO, message, strlen(message));
+    }
+}
+
+void signal_handler(int signum) {
+    write(STDERR_FILENO, "Дочерний процесс прерван.\n", 27);
+    exit(EXIT_FAILURE);
 }
 
 int process_command(const char *command) {
-    char *token;
-    float result = 0.0;
-    int first = 1;
-
-    // Копируем строку, чтобы не изменять оригинал
     char buffer[BUFFER_SIZE];
-    int i = 0;
-    while (command[i] != '\0' && i < BUFFER_SIZE - 1) {
-        buffer[i] = command[i];
-        i++;
-    }
-    buffer[i] = '\0'; // Нулевой символ для завершения строки
+    strncpy(buffer, command, BUFFER_SIZE - 1);
+    buffer[BUFFER_SIZE - 1] = '\0';
 
-    token = strtok(buffer, " ");
+    char *token = strtok(buffer, " ");
+    float result = 0.0;
+    int is_first = 1;
 
     while (token != NULL) {
         float num = atof(token);
-
-        if (first) {
+        if (is_first) {
             result = num;
-            first = 0;
+            is_first = 0;
         } else {
             if (num == 0) {
-                write_error("ERROR: Division by zero\n");
-                return E_DEVIDE_BY_ZERO;
+                write_error("Ошибка: Деление на ноль.\n");
+                return -1;
             }
             result /= num;
         }
-
         token = strtok(NULL, " ");
     }
 
-    write(STDOUT_FILENO, "Division result is: ", 20);
-    char result_str[BUFFER_SIZE];
-    int length = snprintf(result_str, sizeof(result_str), "%f\n", result);
-    write(STDOUT_FILENO, result_str, length);
+    char output[BUFFER_SIZE];
+    snprintf(output, BUFFER_SIZE, "Результат деления: %.6f\n", result);
+    write(STDOUT_FILENO, output, strlen(output));
 
-    return E_SUCCESS;
+    return 0;
 }
 
 int main() {
-    // Открываем общую память
-    int shm_fd = shm_open("/shared_mem", O_RDWR, 0666);
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+
+    int shm_fd = shm_open(SHM_NAME, O_RDWR, 0666);
     if (shm_fd == -1) {
-        write_error("ERROR: shm_open failed\n");
-        exit(EXIT_FAILURE);
+        write_error("Ошибка: Не удалось открыть общую память.\n");
+        return EXIT_FAILURE;
     }
 
-    // Отображаем общую память
-    char *shm_ptr = mmap(0, BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    if (shm_ptr == MAP_FAILED) {
-        close(shm_fd); // Закрываем дескриптор памяти
-        write_error("ERROR: mmap failed\n");
-        exit(EXIT_FAILURE);
+    char *shared_memory = mmap(0, BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if (shared_memory == MAP_FAILED) {
+        cleanup_resources(NULL, NULL, NULL, shm_fd);
+        write_error("Ошибка: Не удалось отобразить общую память.\n");
+        return EXIT_FAILURE;
     }
 
-    // Открываем семафоры для синхронизации
-    sem_t *sem_parent_write = sem_open("/sem_parent_write", 0);
-    sem_t *sem_child_read = sem_open("/sem_child_read", 0);
+    sem_t *sem_parent_write = sem_open(SEM_PARENT_WRITE, 0);
+    sem_t *sem_child_read = sem_open(SEM_CHILD_READ, 0);
     if (sem_parent_write == SEM_FAILED || sem_child_read == SEM_FAILED) {
-        munmap(shm_ptr, BUFFER_SIZE); // Освобождаем память
-        close(shm_fd); // Закрываем дескриптор памяти
-        write_error("ERROR: sem_open failed\n");
-        exit(EXIT_FAILURE);
+        cleanup_resources(sem_parent_write, sem_child_read, shared_memory, shm_fd);
+        write_error("Ошибка: Не удалось открыть семафоры.\n");
+        return EXIT_FAILURE;
     }
 
     while (1) {
-        // Ждем, пока родительский процесс напишет команду
         sem_wait(sem_parent_write);
 
-        // Проверяем маркер завершения
-        if (strcmp(shm_ptr, END_MARKER) == 0) {
-            break; // Завершаем работу, если получен маркер
-        }
-
-        // Обрабатываем команду из общей памяти
-        if (process_command(shm_ptr) == E_DEVIDE_BY_ZERO) {
+        if (strcmp(shared_memory, END_MARKER) == 0) {
             break;
         }
 
-        // Сигнализируем родительскому процессу, что обработка завершена
+        if (process_command(shared_memory) < 0) {
+            break;
+        }
+
         sem_post(sem_child_read);
     }
 
-    // Закрываем семафоры
-    sem_close(sem_parent_write);
-    sem_close(sem_child_read);
+    cleanup_resources(sem_parent_write, sem_child_read, shared_memory, shm_fd);
 
-    // Отключаем общую память
-    munmap(shm_ptr, BUFFER_SIZE);
-    close(shm_fd);
-
-    return E_SUCCESS;
+    return EXIT_SUCCESS;
 }
