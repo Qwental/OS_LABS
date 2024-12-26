@@ -1,27 +1,14 @@
 #include "block_2n.h"
 
-// Функция вычисления логарифма по основанию 2
-int log2_calc(int number) {
-    if (number == 0) {
-        return -1;
-    }
-    int log_value = 0;
-    while (number > 1) {
-        number >>= 1;
-        log_value++;
-    }
-    return log_value;
-}
 
-// Функция создания аллокатора
 Allocator *allocator_create(void *memory_region, size_t region_size) {
     if (memory_region == NULL || region_size < sizeof(Allocator)) {
         return NULL;
     }
 
-    Allocator *allocator = (Allocator *) memory_region; // указ начало переданной области памяти
-    allocator->base_addr = memory_region; // сохр указатель на переданную область памяти,
-    allocator->total_size = region_size; // сохр размер памяти
+    Allocator *allocator = (Allocator *) memory_region;
+    allocator->base_addr = memory_region;
+    allocator->total_size = region_size;
 
     const size_t min_usable = sizeof(Block) + BLOCK_MIN_SIZE;
     size_t max_block = BLOCK_MAX_SIZE(region_size);
@@ -68,7 +55,6 @@ Allocator *allocator_create(void *memory_region, size_t region_size) {
     return allocator;
 }
 
-// Функция выделения памяти
 void *allocator_alloc(Allocator *allocator, size_t alloc_size) {
     if (allocator == NULL || alloc_size == 0) {
         return NULL;
@@ -91,7 +77,6 @@ void *allocator_alloc(Allocator *allocator, size_t alloc_size) {
     return (void *) ((char *) allocated_block + sizeof(Block));
 }
 
-// Функция освобождения памяти
 void allocator_free(Allocator *allocator, void *memory_pointer) {
     if (allocator == NULL || memory_pointer == NULL) {
         return;
@@ -116,9 +101,20 @@ void allocator_free(Allocator *allocator, void *memory_pointer) {
     allocator->free_lists[list_index] = block_to_free;
 }
 
-// Функция уничтожения аллокатора
 void allocator_destroy(Allocator *allocator) {
     if (allocator != NULL) {
         munmap(allocator->base_addr, allocator->total_size);
     }
+}
+
+int log2_calc(int number) {
+    if (number == 0) {
+        return -1;
+    }
+    int log_value = 0;
+    while (number > 1) {
+        number >>= 1;
+        log_value++;
+    }
+    return log_value;
 }

@@ -1,5 +1,8 @@
 #!/bin/bash
 #  chmod +x build_and_check.sh
+#gcc -o child child.c -lrt -lpthread
+#gcc -o parent parent.c -lrt -lpthread
+
 # ./build_and_check.sh
 # ls /dev/shm
 # Имена файлов и программ

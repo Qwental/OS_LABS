@@ -14,24 +14,31 @@
 #define END_MARKER "END"
 
 // Глобальные переменные для обработки сигналов
-sem_t *sem_parent_write = NULL;
+sem_t *sem_parent_write = NULL; // Указатели на семафоры.
 sem_t *sem_child_read = NULL;
-char *shared_memory = NULL;
-int shm_fd = -1;
+char *shared_memory = NULL; //  Указатель на область общей памяти
+int shm_fd = -1; // Дескриптор общей памяти.
 
 // Очистка ресурсов
 void cleanup_resources() {
     if (sem_parent_write != NULL) {
         sem_close(sem_parent_write);
+        sem_unlink(SEM_PARENT_WRITE); // del
+        sem_parent_write = NULL;
     }
     if (sem_child_read != NULL) {
         sem_close(sem_child_read);
+        sem_unlink(SEM_CHILD_READ);
+        sem_child_read = NULL;
     }
     if (shared_memory != NULL) {
         munmap(shared_memory, BUFFER_SIZE);
+        shared_memory = NULL;
     }
     if (shm_fd != -1) {
         close(shm_fd);
+        shm_unlink(SHM_NAME);
+        shm_fd = -1;
     }
 }
 
@@ -83,19 +90,19 @@ int main() {
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    shm_fd = shm_open(SHM_NAME, O_RDWR, 0666);
+    shm_fd = shm_open(SHM_NAME, O_RDWR, 0666); // открываем sh
     if (shm_fd == -1) {
         write_error("Ошибка: Не удалось открыть общую память.\n");
         return EXIT_FAILURE;
     }
-
+    //  отображ sh в адресное пространство процесса
     shared_memory = mmap(0, BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (shared_memory == MAP_FAILED) {
         cleanup_resources();
         write_error("Ошибка: Не удалось отобразить общую память.\n");
         return EXIT_FAILURE;
     }
-
+    // открываем семафоры
     sem_parent_write = sem_open(SEM_PARENT_WRITE, 0);
     sem_child_read = sem_open(SEM_CHILD_READ, 0);
     if (sem_parent_write == SEM_FAILED || sem_child_read == SEM_FAILED) {
@@ -105,14 +112,19 @@ int main() {
     }
 
     while (1) {
-        sem_wait(sem_parent_write);
+        sem_wait(sem_parent_write); // ждем увед от род проц
 
-        if (strcmp(shared_memory, END_MARKER) == 0) {
+        if (strcmp(shared_memory, END_MARKER) == 0) { // проверка маркера
+            sem_post(sem_child_read); // Уведомляем родителя о завершении +
             break;
         }
 
         if (process_command(shared_memory) < 0) {
-            break;
+            strncpy(shared_memory, "ERROR", BUFFER_SIZE - 1);
+            shared_memory[BUFFER_SIZE - 1] = '\0';
+            sem_post(sem_child_read); // Уведомляем родителя об ошибке +
+            cleanup_resources();
+            exit(EXIT_FAILURE);
         }
 
         sem_post(sem_child_read);

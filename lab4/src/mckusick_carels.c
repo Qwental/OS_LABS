@@ -2,19 +2,17 @@
 // Created by Qwental on 22.12.2024.
 //
 
-
 #include "mckusick_carels.h"
 
-// Функция для создания аллокатора
 MemoryAllocator *allocator_create(void *memory_pool, size_t total_size) {
     if (memory_pool == NULL || total_size < sizeof(MemoryAllocator)) {
         return NULL;
     }
 
-    MemoryAllocator *allocator = (MemoryAllocator *)memory_pool;
-    allocator->memory_start = (char *)memory_pool + sizeof(MemoryAllocator);
+    MemoryAllocator *allocator = (MemoryAllocator *) memory_pool;
+    allocator->memory_start = (char *) memory_pool + sizeof(MemoryAllocator);
     allocator->memory_size = total_size - sizeof(MemoryAllocator);
-    allocator->free_list_head = (FreeBlock *)allocator->memory_start;
+    allocator->free_list_head = (FreeBlock *) allocator->memory_start;
 
     // Инициализация списка
     if (allocator->free_list_head != NULL) {
@@ -24,7 +22,6 @@ MemoryAllocator *allocator_create(void *memory_pool, size_t total_size) {
     return allocator;
 }
 
-// Функция для уничтожения аллокатора
 void allocator_destroy(MemoryAllocator *allocator) {
     if (allocator == NULL) {
         return;
@@ -35,7 +32,6 @@ void allocator_destroy(MemoryAllocator *allocator) {
     allocator->free_list_head = NULL;
 }
 
-// Функция для выделения памяти
 void *allocator_alloc(MemoryAllocator *allocator, size_t size) {
     if (allocator == NULL || size == 0) {
         return NULL;
@@ -62,13 +58,12 @@ void *allocator_alloc(MemoryAllocator *allocator, size_t size) {
     return NULL;
 }
 
-// Функция для освобождения памяти
 void allocator_free(MemoryAllocator *allocator, void *memory_block) {
     if (allocator == NULL || memory_block == NULL) {
         return;
     }
 
-    FreeBlock *block_to_free = (FreeBlock *)memory_block;
+    FreeBlock *block_to_free = (FreeBlock *) memory_block;
     block_to_free->next_block = allocator->free_list_head;
     allocator->free_list_head = block_to_free;
 }

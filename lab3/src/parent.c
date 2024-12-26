@@ -15,7 +15,7 @@
 #define SEM_CHILD_READ "/sem_child_read"
 #define END_MARKER "END"
 
-// Глобальные переменные для обработки сигналов
+// Глобальные переменные для обработки сигналов Конечно лучше через sigaction, но это оверкилл уже
 sem_t *sem_parent_write = NULL;
 sem_t *sem_child_read = NULL;
 char *shared_memory = NULL;
@@ -26,17 +26,21 @@ void cleanup_resources() {
     if (sem_parent_write != NULL) {
         sem_close(sem_parent_write);
         sem_unlink(SEM_PARENT_WRITE);
+        sem_parent_write = NULL;
     }
     if (sem_child_read != NULL) {
         sem_close(sem_child_read);
         sem_unlink(SEM_CHILD_READ);
+        sem_child_read = NULL;
     }
     if (shared_memory != NULL) {
         munmap(shared_memory, BUFFER_SIZE);
+        shared_memory = NULL;
     }
     if (shm_fd != -1) {
         close(shm_fd);
         shm_unlink(SHM_NAME);
+        shm_fd = -1;
     }
 }
 
@@ -66,12 +70,14 @@ int main(int argc, char *argv[]) {
     FILE *input_file = fopen(argv[1], "r");
     if (input_file == NULL) {
         write_error("Ошибка: Не удалось открыть файл.\n");
+        cleanup_resources();
         return EXIT_FAILURE;
     }
 
     shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
     if (shm_fd == -1) {
         fclose(input_file);
+        cleanup_resources();
         write_error("Ошибка: Не удалось создать объект общей памяти.\n");
         return EXIT_FAILURE;
     }
@@ -83,14 +89,14 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    shared_memory = mmap(0, BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    shared_memory = mmap(NULL, BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (shared_memory == MAP_FAILED) {
         fclose(input_file);
         cleanup_resources();
         write_error("Ошибка: Не удалось отобразить общую память.\n");
         return EXIT_FAILURE;
     }
-
+    // создаем семафоры
     sem_parent_write = sem_open(SEM_PARENT_WRITE, O_CREAT, 0666, 0);
     sem_child_read = sem_open(SEM_CHILD_READ, O_CREAT, 0666, 0);
     if (sem_parent_write == SEM_FAILED || sem_child_read == SEM_FAILED) {
@@ -104,12 +110,16 @@ int main(int argc, char *argv[]) {
     if (pid < 0) {
         fclose(input_file);
         cleanup_resources();
+
         write_error("Ошибка: Не удалось создать дочерний процесс.\n");
-        return EXIT_FAILURE;
+        exit(EXIT_FAILURE);
     }
 
     if (pid == 0) {
         execl("./child", "./child", NULL);
+
+        fclose(input_file);
+        cleanup_resources();
         write_error("Ошибка: Не удалось выполнить дочерний процесс.\n");
         exit(EXIT_FAILURE);
     } else {
@@ -117,10 +127,18 @@ int main(int argc, char *argv[]) {
         while (fgets(buffer, sizeof(buffer), input_file) != NULL) {
             strncpy(shared_memory, buffer, BUFFER_SIZE - 1);
             shared_memory[BUFFER_SIZE - 1] = '\0';
-            sem_post(sem_parent_write);
-            sem_wait(sem_child_read);
-        }
+            sem_post(sem_parent_write); // увед дочер процесс +
+            sem_wait(sem_child_read); // ожидаем
 
+            // Проверяем, не произошла ли ошибка в дочернем процессе
+            if (strcmp(shared_memory, "ERROR") == 0) {
+                write_error("Ошибка в дочернем процессе. Завершаем работу.\n");
+                cleanup_resources();
+                fclose(input_file);
+                exit(EXIT_FAILURE);
+            }
+        }
+        // записываем end в SH и ждемс
         strncpy(shared_memory, END_MARKER, BUFFER_SIZE - 1);
         shared_memory[BUFFER_SIZE - 1] = '\0';
         sem_post(sem_parent_write);
