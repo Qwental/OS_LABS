@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <sys/mman.h>
 #include <unistd.h>
+
 //  вычисляет указатель на список свободных блоков по индексу в структуре аллокатора.
 #define OFFSET_FREE_LIST(index, allocator) ((Block **) ((char *)(allocator) + sizeof(Allocator)))[index]
 #define BLOCK_MIN_SIZE 16

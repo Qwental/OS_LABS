@@ -4,7 +4,7 @@
 
 #ifndef MCKUSICK_CARELS_H
 #define MCKUSICK_CARELS_H
-
+#include <stdlib.h>
 #include <stddef.h>
 
 #define ALIGN_SIZE(size, alignment) (((size) + (alignment - 1)) & ~(alignment - 1)) // Выравнивание размера

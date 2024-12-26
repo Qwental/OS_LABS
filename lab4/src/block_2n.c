@@ -1,6 +1,7 @@
 #include "block_2n.h"
 
 
+
 Allocator *allocator_create(void *memory_region, const size_t region_size) {
     if (memory_region == NULL || region_size < sizeof(Allocator)) {
         return NULL;
@@ -13,7 +14,16 @@ Allocator *allocator_create(void *memory_region, const size_t region_size) {
     const size_t min_usable = sizeof(Block) + BLOCK_MIN_SIZE;
     const size_t max_block = BLOCK_MAX_SIZE(region_size);
     // колво списков для блоков разных размеров
-    allocator->num_lists = (size_t) floor(log2_calc(max_block) / DIVISOR_LOG2);
+
+    size_t num_lists = 0;
+    size_t block_size_temp = min_usable;
+    while (block_size_temp <= region_size)
+    {
+        num_lists++;
+        block_size_temp <<= 1;
+    }
+    allocator->num_lists = num_lists;
+
     // указ на начло массива списков своб блоков
     allocator->free_lists = (Block **) ((char *) memory_region + sizeof(Allocator));
     for (size_t i = 0; i < allocator->num_lists; i++) {
