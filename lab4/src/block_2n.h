@@ -20,9 +20,9 @@ typedef struct Block {
 } Block;
 
 typedef struct Allocator {
-    Block **free_lists;
+    Block **free_lists; // yказ на своб блоки разного разм
     size_t num_lists;
-    void *base_addr;
+    void *base_addr; //yказ на начало выдел пямяти
     size_t total_size;
 } Allocator;
 

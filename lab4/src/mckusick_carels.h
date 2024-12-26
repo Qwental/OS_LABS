@@ -8,24 +8,24 @@
 #include <stddef.h>
 
 #define ALIGN_SIZE(size, alignment) (((size) + (alignment - 1)) & ~(alignment - 1)) // Выравнивание размера
-#define FREE_LIST_ALIGNMENT 8 // Выравнивание списка свободных блоков
+#define FREE_LIST_ALIGNMENT 8
 
-typedef struct FreeBlock {
-    struct FreeBlock *next_block;
-} FreeBlock;
+typedef struct Block {
+    struct Block *next_block;
+} Block;
 
-typedef struct MemoryAllocator {
-    void *memory_start;
-    size_t memory_size;
-    FreeBlock *free_list_head;
-} MemoryAllocator;
+typedef struct Allocator {
+    void *base_addr;
+    size_t total_size;
+    Block *free_list_head;
+} Allocator;
 
-MemoryAllocator *allocator_create(void *memory_pool, size_t total_size);
+Allocator *allocator_create(void *memory_region, size_t region_size);
 
-void allocator_destroy(MemoryAllocator *allocator);
+void allocator_destroy(Allocator *allocator);
 
-void *allocator_alloc(MemoryAllocator *allocator, size_t size);
+void *allocator_alloc(Allocator *allocator, size_t alloc_size);
 
-void allocator_free(MemoryAllocator *allocator, void *memory_block);
+void allocator_free(Allocator *allocator, void *memory_block);
 
 #endif // MCKUSICK_CARELS_H
